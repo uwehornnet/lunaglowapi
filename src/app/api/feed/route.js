@@ -6,14 +6,35 @@ const SHOPIFY_ADMIN_ACCESS_TOKEN = process.env.SHOPIFY_ADMIN_ACCESS_TOKEN;
 const SHOP_DOMAIN = "https://lunaglow.de";
 const CURRENCY = "EUR";
 
-function escapeXml(str) {
+const CSV_HEADERS = [
+	"id",
+	"title",
+	"description",
+	"link",
+	"image_link",
+	"additional_image_link",
+	"availability",
+	"price",
+	"sale_price",
+	"brand",
+	"condition",
+	"gtin",
+	"identifier_exists",
+	"product_type",
+	"item_group_id",
+	"color",
+	"size",
+	"material",
+	"shipping_weight",
+];
+
+function escapeCsv(str) {
 	if (!str) return "";
-	return String(str)
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;")
-		.replace(/'/g, "&apos;");
+	const value = String(str);
+	if (value.includes('"') || value.includes(",") || value.includes("\n")) {
+		return `"${value.replace(/"/g, '""')}"`;
+	}
+	return value;
 }
 
 function stripHtml(html) {
@@ -35,7 +56,7 @@ function getVariantOptionByName(product, variant, optionName) {
 	return variant[`option${option.position}`] || null;
 }
 
-function buildItemXml(product, variant) {
+function buildItemRow(product, variant) {
 	const variantId = variant.sku || `shopify_${product.id}_${variant.id}`;
 	const title = variant.title !== "Default Title"
 		? `${product.title} - ${variant.title}`
@@ -43,76 +64,53 @@ function buildItemXml(product, variant) {
 	const description = stripHtml(product.body_html);
 	const link = `${SHOP_DOMAIN}/products/${product.handle}`;
 	const imageLink = product.images?.[0]?.src || "";
-	const price = `${parseFloat(variant.price).toFixed(2)} ${CURRENCY}`;
+	const additionalImages = (product.images?.slice(1) || []).map((img) => img.src).join(",");
 	const availability = getAvailability(variant, product.status);
 	const brand = product.vendor || "";
 	const barcode = variant.barcode || "";
 	const productType = product.product_type || "";
 
 	const color = getVariantOptionByName(product, variant, "Color")
-		|| getVariantOptionByName(product, variant, "Farbe");
+		|| getVariantOptionByName(product, variant, "Farbe") || "";
 	const size = getVariantOptionByName(product, variant, "Size")
-		|| getVariantOptionByName(product, variant, "Größe");
-	const material = getVariantOptionByName(product, variant, "Material");
+		|| getVariantOptionByName(product, variant, "Größe") || "";
+	const material = getVariantOptionByName(product, variant, "Material") || "";
 
-	const salePrice = variant.compare_at_price && parseFloat(variant.compare_at_price) > parseFloat(variant.price)
-		? `${parseFloat(variant.price).toFixed(2)} ${CURRENCY}`
-		: null;
-	const regularPrice = salePrice
+	const hasSalePrice = variant.compare_at_price && parseFloat(variant.compare_at_price) > parseFloat(variant.price);
+	const salePrice = hasSalePrice ? `${parseFloat(variant.price).toFixed(2)} ${CURRENCY}` : "";
+	const regularPrice = hasSalePrice
 		? `${parseFloat(variant.compare_at_price).toFixed(2)} ${CURRENCY}`
-		: price;
-
-	const additionalImages = product.images?.slice(1) || [];
+		: `${parseFloat(variant.price).toFixed(2)} ${CURRENCY}`;
 
 	const weight = variant.weight && variant.weight > 0
 		? `${variant.weight} ${variant.weight_unit || "kg"}`
-		: null;
+		: "";
 
-	let xml = `    <item>
-      <g:id>${escapeXml(variantId)}</g:id>
-      <g:title>${escapeXml(title)}</g:title>
-      <g:description>${escapeXml(description)}</g:description>
-      <g:link>${escapeXml(link)}</g:link>
-      <g:image_link>${escapeXml(imageLink)}</g:image_link>
-      <g:availability>${availability}</g:availability>
-      <g:price>${escapeXml(regularPrice)}</g:price>
-      <g:brand>${escapeXml(brand)}</g:brand>
-      <g:condition>new</g:condition>
-      <g:item_group_id>${product.id}</g:item_group_id>`;
+	const identifierExists = barcode ? "" : "false";
 
-	if (salePrice) {
-		xml += `\n      <g:sale_price>${escapeXml(salePrice)}</g:sale_price>`;
-	}
+	const row = [
+		variantId,
+		title,
+		description,
+		link,
+		imageLink,
+		additionalImages,
+		availability,
+		regularPrice,
+		salePrice,
+		brand,
+		"new",
+		barcode,
+		identifierExists,
+		productType,
+		product.id,
+		color,
+		size,
+		material,
+		weight,
+	];
 
-	if (barcode) {
-		xml += `\n      <g:gtin>${escapeXml(barcode)}</g:gtin>`;
-	} else {
-		xml += `\n      <g:identifier_exists>false</g:identifier_exists>`;
-	}
-
-	if (productType) {
-		xml += `\n      <g:product_type>${escapeXml(productType)}</g:product_type>`;
-	}
-
-	if (color) {
-		xml += `\n      <g:color>${escapeXml(color)}</g:color>`;
-	}
-	if (size) {
-		xml += `\n      <g:size>${escapeXml(size)}</g:size>`;
-	}
-	if (material) {
-		xml += `\n      <g:material>${escapeXml(material)}</g:material>`;
-	}
-	if (weight) {
-		xml += `\n      <g:shipping_weight>${escapeXml(weight)}</g:shipping_weight>`;
-	}
-
-	for (const img of additionalImages) {
-		xml += `\n      <g:additional_image_link>${escapeXml(img.src)}</g:additional_image_link>`;
-	}
-
-	xml += `\n    </item>`;
-	return xml;
+	return row.map(escapeCsv).join(",");
 }
 
 async function fetchAllProducts(adminRESTClient) {
@@ -153,34 +151,26 @@ export async function GET() {
 		const adminRESTClient = new shopifyServer.clients.Rest({ session: adminSession });
 		const products = await fetchAllProducts(adminRESTClient);
 
-		const items = products
+		const rows = products
 			.filter((p) => p.status === "active")
 			.flatMap((product) =>
-				product.variants.map((variant) => buildItemXml(product, variant))
+				product.variants.map((variant) => buildItemRow(product, variant))
 			);
 
-		const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">
-  <channel>
-    <title>LunaGlow Google Shopping Feed</title>
-    <link>${SHOP_DOMAIN}</link>
-    <description>Google Merchant Center Product Feed</description>
-${items.join("\n")}
-  </channel>
-</rss>`;
+		const csv = [CSV_HEADERS.join(","), ...rows].join("\n");
 
-		return new NextResponse(xml, {
+		return new NextResponse(csv, {
 			status: 200,
 			headers: {
-				"Content-Type": "application/xml; charset=utf-8",
+				"Content-Type": "text/csv; charset=utf-8",
 			},
 		});
 	} catch (error) {
 		console.error("Error generating Google Merchant feed:", error);
-		return new NextResponse(`<?xml version="1.0"?><error>${escapeXml(error.message)}</error>`, {
+		return new NextResponse(error.message, {
 			status: 500,
 			headers: {
-				"Content-Type": "application/xml",
+				"Content-Type": "text/plain",
 			},
 		});
 	}
