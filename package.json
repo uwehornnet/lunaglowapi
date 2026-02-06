@@ -1,20 +1,20 @@
 {
-	"name": "lunaglow-api",
-	"version": "0.1.0",
-	"private": true,
-	"scripts": {
-		"dev": "next dev",
-		"build": "next build",
-		"start": "next start",
-		"lint": "next lint",
-		"push": "git push https://github.com/uwehornnet/lunaglowapi.git"
-	},
-	"dependencies": {
-		"@shopify/admin-api-client": "^1.0.8",
-		"@shopify/shopify-api": "^11.11.1",
-		"dotenv": "^16.4.7",
-		"next": "15.2.4",
-		"react": "^19.0.0",
-		"react-dom": "^19.0.0"
-	}
+  "name": "lunaglow-api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "push": "git push https://github.com/uwehornnet/lunaglowapi.git"
+  },
+  "dependencies": {
+    "@shopify/admin-api-client": "^1.0.8",
+    "@shopify/shopify-api": "^11.11.1",
+    "dotenv": "^16.4.7",
+    "next": "15.2.8",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
 }
